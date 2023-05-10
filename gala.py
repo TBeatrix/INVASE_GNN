@@ -1,6 +1,6 @@
 import torch
 from torch import Tensor
-from torch.utils.tensorboard import SummaryWriter
+#from torch.utils.tensorboard import SummaryWriter
 from torch import nn
 import torch.nn.functional as F
 import torch_geometric.nn as pyg_nn
@@ -11,7 +11,7 @@ from sklearn.metrics import normalized_mutual_info_score, adjusted_rand_score
 import gcn_deconv
 
 
-writer = SummaryWriter(log_dir='runs/GALA')
+#writer = SummaryWriter(log_dir='runs/GALA')
 
 EPS = 1e-15
 
@@ -90,35 +90,35 @@ class GAE(nn.Module):
         return normalized_mutual_info_score(y_true, y_pred), \
             adjusted_rand_score(y_true, y_pred)
 
+#
+# device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
+#
+# dataset = Planetoid(root='', name='Cora')
+#
+# data = dataset[0].to(device)
+#
+# model = GAE(dataset.num_features).to(device)
+#
+# print(model)
+#
+# print('%d parameters' % sum(p.numel() for p in model.parameters() if p.requires_grad))
+#
+# optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+#
+# for epoch in range(epochs):
+#     model.train()
+#     optimizer.zero_grad()
+#     loss_value = model.loss(data.x, data.edge_index)
+#     loss_value.backward()
+#     optimizer.step()
+#     model.eval()
+#     with torch.no_grad():
+#         z = model.encode(data.x, data.edge_index)
+#         nmi, ari = model.test_NC(z, data.y)
+#         writer.add_scalar("loss", loss_value, global_step=epoch)
+#         writer.add_scalar("nmi", nmi, global_step=epoch)
+#         writer.add_scalar("ari", ari, global_step=epoch)
+#         print(f'Epoch: {epoch:03d}, Loss: {loss_value.float():.4f}, NMI: {nmi:.4f}', f'ARI: {ari:.4f}')
 
-device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
-
-dataset = Planetoid(root='', name='Cora')
-
-data = dataset[0].to(device)
-
-model = GAE(dataset.num_features).to(device)
-
-print(model)
-
-print('%d parameters' % sum(p.numel() for p in model.parameters() if p.requires_grad))
-
-optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-
-for epoch in range(epochs):
-    model.train()
-    optimizer.zero_grad()
-    loss_value = model.loss(data.x, data.edge_index)
-    loss_value.backward()
-    optimizer.step()
-    model.eval()
-    with torch.no_grad():
-        z = model.encode(data.x, data.edge_index)
-        nmi, ari = model.test_NC(z, data.y)
-        writer.add_scalar("loss", loss_value, global_step=epoch)
-        writer.add_scalar("nmi", nmi, global_step=epoch)
-        writer.add_scalar("ari", ari, global_step=epoch)
-        print(f'Epoch: {epoch:03d}, Loss: {loss_value.float():.4f}, NMI: {nmi:.4f}', f'ARI: {ari:.4f}')
-
-writer.flush()
-writer.close()
+#writer.flush()
+#writer.close()
