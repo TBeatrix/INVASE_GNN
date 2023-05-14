@@ -41,9 +41,6 @@ def to_networkx(data, node_attrs=None, edge_attrs=None):
 # Model parameters
 class Params:
     data_type: str
-    train_no: int
-    test_no: int
-    dim: int
     model_type: str
     actor_h_dim: int
     critic_h_dim: int
@@ -59,9 +56,9 @@ if __name__ == '__main__':
     # (1) Data generation
     # BA_shapes dataset to test INVASE
     dataset = ExplainerDataset(
-        graph_generator=BAGraph(num_nodes=30, num_edges=5),
+        graph_generator=BAGraph(num_nodes=300, num_edges=50),
         motif_generator='house',
-        num_motifs=8,
+        num_motifs=80,
     )
     data = dataset[0]
 
@@ -77,17 +74,14 @@ if __name__ == '__main__':
     params = Params()
     # Inputs for the main function
     params.data_type = 'BAShapes'
-    params.train_no = 10000
-    params.test_no = 10000
-    params.dim = 11
     params.model_type = 'invase'
-    params.actor_h_dim = 100
-    params.critic_h_dim = 200
+    params.actor_h_dim = 300
+    params.critic_h_dim = 400
     params.n_layer = 3
     params.batch_size = 1000
     params.iteration = 10000
     params.activation = 'relu'
-    params.learning_rate = 0.0001
+    params.learning_rate = 0.001
     params.lamda = 0.1
     model_parameters = {'lamda': params.lamda,
                         'actor_h_dim': params.actor_h_dim,
@@ -99,22 +93,19 @@ if __name__ == '__main__':
                         'learning_rate': params.learning_rate}
 
     num_nodes = data.num_nodes
+    # Dummy features for BAShapes
     data.x = torch.eye(num_nodes)
-    print(dataset.y)
-    print(dataset.edge_index)
-
-    #y_train = data.y[train_idx]
 
     # (2) Train INVASE or INVASE-
-
+    # TODO: csak a train_idx-et adjam át, és azokkal dolgozzak vagy a teljes gráffal?
     model = InvaseGCN(data.x, data.edge_index, data.y, params.model_type, model_parameters)
     model.train(data.x, data.edge_index, data.y)
 
     # (3) Evaluate INVASE on ground truth feature importance and prediction performance
     # Compute importance score
-    x_test_tensor = torch.from_numpy(data[test_idx]).float()
+    x_test = (data.x[test_idx])
 
-    g_hat = model.importance_score(x_test_tensor)
+    g_hat = model.importance_score(x_test)
     importance_score = 1. * (g_hat > 0.5)
 
     # Evaluate the performance of feature importance
@@ -128,7 +119,7 @@ if __name__ == '__main__':
           'FDR std: ' + str(np.round(std_fdr, 1)) + '\%, ')
 
     # Predict labels
-    y_hat = model.predict(x_test_tensor)
+    y_hat = model.predict(x_test, data.edge_index)
 
     # Evaluate the performance of feature importance
     auc, apr, acc = prediction_performance_metric(data.y[test_idx], y_hat)
