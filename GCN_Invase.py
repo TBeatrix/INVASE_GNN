@@ -136,7 +136,9 @@ class InvaseGCN:
                 # Element wise multiplication
                 # Use only the selected features and edges
                 critic_model_input = (feature * x_selection).float()
-                critic_model_A_input = (edge_index * A_selection).float()
+                # TODO: ezt használni, ha A_selection már helyes
+                # critic_model_A_input = (edge_index * A_selection).float()
+                critic_model_A_input = edge_index
                 x = self.activation(self.GCNConv_in(critic_model_input, critic_model_A_input))
                 x = self.batch_normalization1(x)
                 for i in range(self.n_layer - 2):
@@ -198,7 +200,8 @@ class InvaseGCN:
                 # TODO: GALA encoder használatának javíítása
                 # Itt az encodert és a dekódert is használom, hogy később a méretek stimmeljenek,
                 # de úgy gondolom, hogy csak az enkóder kéne és abból valahogy vissza kéne állítani a többit
-                selection_probability = self.actor(x_batch, A_train)
+                z = self.actor.encode(x_batch, A_train)
+                selection_probability = self.actor.decode(z, A_train)
                 # Sampling the features based on the selection_probability
                 selection_probability = torch.sigmoid(selection_probability)
             x_selection = bernoulli_sampling(selection_probability)
@@ -249,7 +252,9 @@ class InvaseGCN:
             self.actor.train()
             self.actor.optimizer.zero_grad()
             # Forward pass
-            self.actor.output = self.actor(x_batch, A_train)
+            z = self.actor.encode(x_batch, A_train)
+            self.actor.output = self.actor.decode(z, A_train)
+            # TODO: Loss számításba belevenni a GALA loss-ját is, ne csak az INVASE actor loss legyen
             self.actor.loss_value = self.actor.loss_invase(y_batch_final.detach(), y_batch, self.actor.output)
             # Backward pass
             self.actor.loss_value.backward()
@@ -280,11 +285,14 @@ class InvaseGCN:
         # Generate a batch of selection probability
         self.actor.eval()
         with torch.no_grad():
-            selection_probability = self.actor(x_test, A)
+            z = self.actor.encode(x_test, A)
+            selection_probability = self.actor.decode(z, A)
             # Sampling the features based on the selection_probability
-        selection = bernoulli_sampling(selection_probability)
+        x_selection = bernoulli_sampling(selection_probability)
+        # TODO: A_selection kiszámítása z-ből
+        A_selection = A
         # Prediction
         self.critic.eval()
         with torch.no_grad():
-            y_hat = self.critic(x_test, selection)
+            y_hat = self.critic(x_test, x_selection, A_selection)
         return np.asarray(y_hat)

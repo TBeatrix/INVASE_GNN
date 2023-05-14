@@ -55,7 +55,7 @@ class GAE(nn.Module):
 
     def forward(self, x, edge_index):
         x = self.encode(x, edge_index)
-        return self.decode(x, edge_index)
+        return x   #self.decode(x, edge_index)
         # return self.encoder(x, edge_index)
 
     def encode(self, x, edge_index):
