@@ -56,9 +56,9 @@ if __name__ == '__main__':
     # (1) Data generation
     # BA_shapes dataset to test INVASE
     dataset = ExplainerDataset(
-        graph_generator=BAGraph(num_nodes=300, num_edges=50),
+        graph_generator=BAGraph(num_nodes=80, num_edges=30),
         motif_generator='house',
-        num_motifs=80,
+        num_motifs=300,
     )
     data = dataset[0]
 
@@ -67,8 +67,8 @@ if __name__ == '__main__':
     train_idx, test_idx = train_test_split(idx, train_size=0.8, stratify=data.y)
 
     # Visualize the graph
-    # nx_G = to_networkx(data)
-    # visualize(data.y, nx_G)
+    #nx_G = to_networkx(data)
+    #visualize(data.y, nx_G)
 
     # Set the parameters of the model
     params = Params()
@@ -90,14 +90,15 @@ if __name__ == '__main__':
                         'batch_size': params.batch_size,
                         'iteration': params.iteration,
                         'activation': params.activation,
-                        'learning_rate': params.learning_rate}
+                        'learning_rate': params.learning_rate,
+                        'train_mask': train_idx,
+                        'test_mask': test_idx}
 
     num_nodes = data.num_nodes
     # Dummy features for BAShapes
     data.x = torch.eye(num_nodes)
 
     # (2) Train INVASE or INVASE-
-    # TODO: csak a train_idx-et adjam át, és azokkal dolgozzak vagy a teljes gráffal?
     model = InvaseGCN(data.x, data.edge_index, data.y, params.model_type, model_parameters)
     model.train(data.x, data.edge_index, data.y)
 

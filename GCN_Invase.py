@@ -46,6 +46,8 @@ class InvaseGCN:
         self.dim = x_train.shape[1]
         self.label_dim = y_train.shape[0]
         self.model_type = model_type
+        self.train_mask = model_parameters['train_mask']
+        self.test_mask = model_parameters['test_mask']
 
         # Build and compile critic
         self.critic = self.build_critic()
@@ -136,9 +138,9 @@ class InvaseGCN:
                 # Element wise multiplication
                 # Use only the selected features and edges
                 critic_model_input = (feature * x_selection).float()
-                # TODO: ezt használni, ha A_selection már helyes
-                # critic_model_A_input = (edge_index * A_selection).float()
-                critic_model_A_input = edge_index
+                critic_model_A_input = edge_index.t()[A_selection].t()
+               # critic_model_A_input = (edge_index * A_selection).float()
+               # critic_model_A_input = edge_index
                 x = self.activation(self.GCNConv_in(critic_model_input, critic_model_A_input))
                 x = self.batch_normalization1(x)
                 for i in range(self.n_layer - 2):
@@ -188,7 +190,6 @@ class InvaseGCN:
         for i in range(self.iteration):
 
             # Select a random batch of samples
-            # TODO: Kellenek-e batchek? Jeleneg nem használom őket, de lehet, hogy kellene
             # ignore batches
             #  idx = np.random.randint(0, x_train.shape[0], self.batch_size)
             x_batch = x_train # [idx, :]
@@ -197,17 +198,15 @@ class InvaseGCN:
             # Generate  selection probability
             self.actor.eval()
             with torch.no_grad():
-                # TODO: GALA encoder használatának javíítása
-                # Itt az encodert és a dekódert is használom, hogy később a méretek stimmeljenek,
-                # de úgy gondolom, hogy csak az enkóder kéne és abból valahogy vissza kéne állítani a többit
                 z = self.actor.encode(x_batch, A_train)
                 selection_probability = self.actor.decode(z, A_train)
                 # Sampling the features based on the selection_probability
                 selection_probability = torch.sigmoid(selection_probability)
+
+                A_selection = self.actor.adjrec(z, A_train, True)
+
             x_selection = bernoulli_sampling(selection_probability)
-            # TODO: A_selection
-            #A_selection = bernoulli_sampling(A_train)
-            A_selection = A_train
+            A_selection = (A_selection > 0.505)
             # Update weights (keras_ train_on_batch)
             # Critic loss
             self.critic.train()
@@ -254,7 +253,7 @@ class InvaseGCN:
             # Forward pass
             z = self.actor.encode(x_batch, A_train)
             self.actor.output = self.actor.decode(z, A_train)
-            # TODO: Loss számításba belevenni a GALA loss-ját is, ne csak az INVASE actor loss legyen
+            #Loss számításba még belevenni a GALA loss-ját is, ne csak az INVASE actor loss legyen
             self.actor.loss_value = self.actor.loss_invase(y_batch_final.detach(), y_batch, self.actor.output)
             # Backward pass
             self.actor.loss_value.backward()
@@ -286,11 +285,13 @@ class InvaseGCN:
         self.actor.eval()
         with torch.no_grad():
             z = self.actor.encode(x_test, A)
+            A_selection = self.actor.adj_rec(z, A, True)
             selection_probability = self.actor.decode(z, A)
             # Sampling the features based on the selection_probability
         x_selection = bernoulli_sampling(selection_probability)
-        # TODO: A_selection kiszámítása z-ből
-        A_selection = A
+        A_mask = A_selection > 0.5050
+        A_selection = A_selection[A_mask]
+
         # Prediction
         self.critic.eval()
         with torch.no_grad():
