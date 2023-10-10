@@ -60,9 +60,10 @@ def prediction_performance_metric(y_test, y_hat):
     - acc: accuracy
   """
 
-    auc = roc_auc_score(y_test[:, 1], y_hat[:, 1])
-    apr = average_precision_score(y_test[:, 1], y_hat[:, 1])
-    acc = accuracy_score(y_test[:, 1], 1. * (y_hat[:, 1] > 0.5))
+    auc = roc_auc_score(y_test, y_hat, multi_class='ovr')
+    print("auc:", auc)
+    apr = average_precision_score(y_test, y_hat)
+    acc = accuracy_score(y_test, 1. * (y_hat > 0.5))
 
     return auc, apr, acc
 

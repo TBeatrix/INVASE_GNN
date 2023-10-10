@@ -43,10 +43,10 @@ class Decoder(nn.Module):
 
 
 class GAE(nn.Module):
-    def __init__(self, num_features,  input_dim=1600, hidden_dim=400):
+    def __init__(self, num_features, input_dim=1600, hidden_dim=400):
         super().__init__()
-        self.encoder = Encoder(num_features,  input_dim, hidden_dim)
-        self.decoder = Decoder(num_features,  input_dim, hidden_dim)
+        self.encoder = Encoder(num_features, input_dim, hidden_dim)
+        self.decoder = Decoder(num_features, input_dim, hidden_dim)
         GAE.reset_parameters(self)
 
     def reset_parameters(self):
@@ -55,8 +55,7 @@ class GAE(nn.Module):
 
     def forward(self, x, edge_index):
         x = self.encode(x, edge_index)
-        return x   #self.decode(x, edge_index)
-        # return self.encoder(x, edge_index)
+        return self.decode(x, edge_index)
 
     def encode(self, x, edge_index):
         return self.encoder(x, edge_index)
