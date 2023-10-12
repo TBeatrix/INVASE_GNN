@@ -1,9 +1,9 @@
 # INVASE Explainability algorithm for graphs
 
-2023 tavasz - Msc Önálló labor 1 projekt
+2023  Msc Önálló labor 1 - 2 projekt
 
 In this semester, my project task is to learn about the well-known Explainability algorithm INVASE and to adapt this method to graphs.
-I am currently using BAShapes for the graph dataset.
+I am currently using BAShapes, Tree-Cycles and Tree-Grid for the graph dataset.
 
 *Sources:*
 
