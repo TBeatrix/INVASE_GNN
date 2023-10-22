@@ -9,7 +9,8 @@ import numpy as np
 from sklearn.metrics import roc_auc_score, average_precision_score, accuracy_score
 
 
-def feature_performance_metric(ground_truth, importance_score):
+def feature_performance_metric(ground_truth_importance, predicted_importance_mask):
+
     """Performance metrics for feature importance (TPR and FDR).
   Args:
     - ground_truth: ground truth feature importance
@@ -22,22 +23,21 @@ def feature_performance_metric(ground_truth, importance_score):
     - std_fdr: standard deviation of false discovery rate
   """
 
-    n = importance_score.shape[0]
+    n = 1
 
-    tpr = np.zeros([n, ])
-    fdr = np.zeros([n, ])
 
     # For each sample
-    for i in range(n):
-        # tpr
-        tpr_nom = np.sum(importance_score[i, :] * ground_truth[i, :])
-        tpr_den = np.sum(ground_truth[i, :])
-        tpr[i] = 100 * float(tpr_nom) / float(tpr_den + 1e-8)
+  #  for i in range(n):
+    # tpr
+    tpr_nom = np.sum((predicted_importance_mask * ground_truth_importance).numpy())
+    tpr_den = np.sum(ground_truth_importance.numpy())
+    tpr = 100 * float(tpr_nom) / float(tpr_den + 1e-8)
 
-        # fdr
-        fdr_nom = np.sum(importance_score[i, :] * (1 - ground_truth[i, :]))
-        fdr_den = np.sum(importance_score[i, :])
-        fdr[i] = 100 * float(fdr_nom) / float(fdr_den + 1e-8)
+    # fdr
+    fdr_nom = np.sum((predicted_importance_mask * (1 - ground_truth_importance)).numpy())
+
+    fdr_den = np.sum(predicted_importance_mask.int().numpy())
+    fdr = 100 * float(fdr_nom) / float(fdr_den + 1e-8)
 
     mean_tpr = np.mean(tpr)
     std_tpr = np.std(tpr)
@@ -60,9 +60,9 @@ def prediction_performance_metric(y_test, y_hat):
     - acc: accuracy
   """
 
-    auc = roc_auc_score(y_test[:, 1], y_hat[:, 1])
-    apr = average_precision_score(y_test[:, 1], y_hat[:, 1])
-    acc = accuracy_score(y_test[:, 1], 1. * (y_hat[:, 1] > 0.5))
+    auc = roc_auc_score(y_test, y_hat, multi_class='ovr')
+    apr = average_precision_score(y_test, y_hat)
+    acc = accuracy_score(y_test, 1. * (y_hat > 0.5))
 
     return auc, apr, acc
 

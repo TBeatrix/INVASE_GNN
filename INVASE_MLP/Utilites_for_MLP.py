@@ -30,13 +30,13 @@ def feature_performance_metric(ground_truth, importance_score):
     # For each sample
     for i in range(n):
         # tpr
-        tpr_nom = np.sum(importance_score[i, :] * ground_truth[i, :])
-        tpr_den = np.sum(ground_truth[i, :])
+        tpr_nom = np.sum(importance_score[i] * ground_truth[i])
+        tpr_den = np.sum(ground_truth[i])
         tpr[i] = 100 * float(tpr_nom) / float(tpr_den + 1e-8)
 
         # fdr
-        fdr_nom = np.sum(importance_score[i, :] * (1 - ground_truth[i, :]))
-        fdr_den = np.sum(importance_score[i, :])
+        fdr_nom = np.sum(importance_score[i] * (1 - ground_truth[i]))
+        fdr_den = np.sum(importance_score[i])
         fdr[i] = 100 * float(fdr_nom) / float(fdr_den + 1e-8)
 
     mean_tpr = np.mean(tpr)

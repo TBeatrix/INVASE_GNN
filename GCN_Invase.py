@@ -3,6 +3,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import random
+
 import networkx as nx
 from torch_geometric.utils import k_hop_subgraph
 
@@ -21,9 +23,9 @@ def visualize(labels, g, title="Graph", edge='black'):
     plt.figure(figsize=(10, 10))
     plt.title(title)
     plt.axis('on')
-    nx.draw_networkx(g, pos=pos, node_size=10, node_color=labels, edge_color=edge, # edge_cmap = plt.cm.Blues,
-                     arrows=False, width=1, style='solid', with_labels= False)
-    #plt.colorbar(plt.cm.ScalarMappable(cmap=plt.cm.Blues, norm=plt.Normalize(vmin=0, vmax=1)))
+    nx.draw_networkx(g, pos=pos, node_size=10, node_color=labels, edge_color=edge,  # edge_cmap = plt.cm.Blues,
+                     arrows=False, width=1, style='solid', with_labels=False)
+    # plt.colorbar(plt.cm.ScalarMappable(cmap=plt.cm.Blues, norm=plt.Normalize(vmin=0, vmax=1)))
     plt.show()
 
 
@@ -31,16 +33,18 @@ def to_networkx(data, node_attrs=None, edge_attrs=None):
     G = nx.Graph()  # nx.DiGraph() if data.is_directed() else
 
     G.add_nodes_from(range(data.num_nodes))
-    for i, (u, v) in enumerate(data.edge_index.t().tolist()):
-        G.add_edge(u, v)
-        if edge_attrs is not None:
-            for key in edge_attrs:
-                G[u][v][key] = data[key][i].item()
-
-    if node_attrs is not None:
-        for key in node_attrs:
-            for i, feat in enumerate(data[key]):
-                G.nodes[i][key] = feat.item()
+    G.add_edges_from(data.edge_index.t().tolist())
+    # for i, (u, v) in enumerate(data.edge_index.t().tolist()):
+    #
+    #     G.add_edge(u, v)
+    #     if edge_attrs is not None:
+    #         for key in edge_attrs:
+    #             G[u][v][key] = data[key][i].item()
+    #
+    # if node_attrs is not None:
+    #     for key in node_attrs:
+    #         for i, feat in enumerate(data[key]):
+    #             G.nodes[i][key] = feat.item()
 
     return G
 
@@ -74,7 +78,6 @@ class InvaseGCN:
         A_train = data.edge_index
         y_train = data.y
         self.lamda = model_parameters['lamda']
-        self.actor_h_dim = model_parameters['actor_h_dim']
         self.critic_h_dim = model_parameters['critic_h_dim']
         self.n_layer = model_parameters['n_layer']
         self.iteration = model_parameters['iteration']
@@ -133,7 +136,7 @@ class InvaseGCN:
         y_pred = y_pred[self.train_mask]
 
         # Policy gradient loss computation.
-        #( y_pred contains negative values, and with torch.log it become nan :()
+        # ( y_pred contains negative values, and with torch.log it become nan :()
         custom_actor_loss = - Reward * torch.sum(selection * torch.log(y_pred + 1e-8) +
                                                  (1 - selection) * torch.log(1 - y_pred + 1e-8), dim=1) - \
                             self.lamda * torch.mean(y_pred, dim=1)
@@ -147,7 +150,6 @@ class InvaseGCN:
         self.activation = params.activation
         self.n_layer = params.n_layer
         self.dim = params.dim
-        # self.actor_h_dim = params.actor_h_dim
 
         # Autoencoder model
         actor_model = GAE(self.dim, round(self.dim / 2), round(self.dim / 4))
@@ -238,7 +240,7 @@ class InvaseGCN:
                 selection_probability = self.actor.decode(z, edge_index)
                 # Sampling the features based on the selection_probability
                 selection_probability = torch.sigmoid(selection_probability)
-                # all False :(
+
                 A_selection = self.actor.adjrec(z, edge_index, True)
 
             x_selection = bernoulli_sampling(selection_probability)
@@ -283,10 +285,10 @@ class InvaseGCN:
             # Use multiple things as the y_true:
             # - selection, critic_out, baseline_out, and ground truth (y)
             if self.model_type == 'invase':
-                y_final = torch.cat((torch.from_numpy(x_selection), self.critic.output,
-                                     self.baseline.output), dim=1)  # axis=1
+                y_final = torch.cat((torch.from_numpy(x_selection), self.critic.output.detach(),
+                                     self.baseline.output.detach()), dim=1)  # axis=1
             else:  # invase_minus
-                y_final = torch.cat((torch.from_numpy(x_selection), self.critic.output), dim=1)
+                y_final = torch.cat((torch.from_numpy(x_selection), self.critic.output.detach()), dim=1)
                 # Train the actor
             self.actor.train()
             self.actor.optimizer.zero_grad()
@@ -295,8 +297,8 @@ class InvaseGCN:
             self.actor.output = torch.sigmoid(self.actor.decode(z, edge_index))
 
             # Loss INVASE + Loss GALA + A_mask size loss
-            self.actor.loss_value = self.actor.loss_invase(y_final.detach(), y, self.actor.output) \
-                                    + self.actor.loss(x, edge_index)  #+ A_mask.sum() / len(A_mask) * self.lamda
+            self.actor.loss_value = self.actor.loss_invase(y_final, y, self.actor.output) \
+                                    + self.actor.loss(x, edge_index) + A_mask.sum() / len(A_mask) * self.lamda
 
             # Backward pass
             self.actor.loss_value.backward()
@@ -316,13 +318,14 @@ class InvaseGCN:
             if i % 250 == 0:
                 # print('Iterations: ' + str(i) + "  Baseline and Critic test:")
                 acc.append(self.test(x, edge_index, y, self.train_mask, self.test_mask))
+                print("Number of important edges: ", A_mask.sum())
 
                 print(dialog)
-            losses.append([self.critic.loss_value.detach().numpy(), self.baseline.loss_value.detach().numpy(), self.actor.loss_value.detach().numpy()])
-
+            losses.append([self.critic.loss_value.detach().numpy(), self.baseline.loss_value.detach().numpy(),
+                           self.actor.loss_value.detach().numpy()])
 
         # Plot the losses
-        plt.plot(losses )
+        plt.plot(losses)
         plt.legend(['critic loss', 'baseline loss', 'actor loss'])
         plt.show()
 
@@ -330,18 +333,29 @@ class InvaseGCN:
         plt.legend(['baseline test acc', 'baseline train acc', 'critic test acc', 'critic train acc'])
         plt.show()
 
+    def importance_score(self, x, edge_index, important_edge_th):
 
-    def importance_score(self, x, edge_index):
         self.actor.eval()
         with torch.no_grad():
-            feature_importance = self.actor(x, edge_index)
-        return np.asarray(feature_importance)
+            z = self.actor.encode(x, edge_index)
+            selection_probability = self.actor.decode(z, edge_index)
+            selection_probability = torch.sigmoid(selection_probability)
+            A_selection = self.actor.adjrec(z, edge_index, True)
+
+        x_selection = bernoulli_sampling(selection_probability)
+        A_mask = 1 * (A_selection > important_edge_th)
+        # Generate a node importance score from masks
+        # A_edges = edge_index[:, A_mask].t().numpy()
+        # A_nodes = A_edges[0] + A_edges[1]
+        # A_nodes = np.unique(A_nodes)
+        return A_mask
 
     @torch.no_grad()
     def test(self, x, edge_index, y, train_mask, test_mask):
         # Test the baseline model
         self.baseline.eval()
-        pred = self.baseline(x, edge_index).argmax(dim=-1)
+        with torch.no_grad():
+            pred = self.baseline(x, edge_index).argmax(dim=-1)
 
         train_correct = int((pred[train_mask] == y[train_mask]).sum())
         train_acc = train_correct / train_mask.size(0)
@@ -380,12 +394,16 @@ class InvaseGCN:
         print(dialog)
         return [test_acc, train_acc, c_test_acc, c_train_acc]
 
-    def predict(self, pred_params, data):
+    def predict(self, data, important_node_th, important_edge_th):
+        # Baseline_predictions
+        baseline_pred = self.predict_baseline(data)
+
         torch.set_printoptions(threshold=5000)
         # Prediction for the whole graph
         A = data.edge_index
         x = data.x
-        # Generate a selection probability
+
+        # Getting the importance masks
         self.actor.eval()
         with torch.no_grad():
             z = self.actor.encode(x, A)
@@ -398,101 +416,155 @@ class InvaseGCN:
         # Select the x features that are above the threshold
         mean_array = np.mean(x_selection, axis=1)
 
-        X_mask = mean_array > pred_params['important_node_th']
+        X_mask = mean_array > important_node_th
         # Select the edges that are above the threshold
-        A_mask = A_selection > pred_params['important_edge_th']
 
-        show_graphs(self, data, A_mask, X_mask, pred_params, A_selection)
+        A_mask = A_selection > important_edge_th
 
-        # Prediction
+        # Critic prediction - with Importance masks
         self.critic.eval()
         with torch.no_grad():
-            y_hat = self.critic(x, A, x_selection, A_mask)
-        return np.asarray(y_hat)
+            y_hat = self.critic(x, A, x_selection, A_mask).argmax(dim=-1)
 
+        # Critic prediction - with Unimportance masks
+        A_mask_inverse = A_mask * -1
+        self.critic.eval()
+        with torch.no_grad():
+            y_hat_inverse = self.critic(x, A, x_selection, A_mask_inverse).argmax(dim=-1)
 
-def show_graphs(self, data, A_mask, X_mask, params, A_selection):
-    if params['node_graph']:
-        indexes = [i for i, value in enumerate(X_mask) if value]
-        Node_graph = data.subgraph(torch.tensor([indexes]))
-        Node_graph = to_networkx(Node_graph)
-        visualize(data.y[torch.tensor([indexes])], Node_graph, "Important Nodes in the graph")
+        return baseline_pred, y_hat, y_hat_inverse, A_mask, X_mask, A_selection
 
-    if params['edge_graph']:
-        print(A_mask.sum())
-        Edge_graph = nx.from_edgelist(data.edge_index[:, A_mask].t().numpy())
-        edge_labels = data.y[list(Edge_graph.nodes)]
+    def predict_baseline(self, data):
+        x = data.x
+        edge_index = data.edge_index
+        # Test the baseline model
+        self.baseline.eval()
+        with torch.no_grad():
+            pred = self.baseline(x, edge_index).argmax(dim=-1)
+        # correct = int((pred == data.y).sum())
+        # acc = correct / data.num_nodes
 
-        visualize(edge_labels, Edge_graph, "Important Edges in the graph")
+        return pred
 
-        all_edges_list = data.edge_index.t().numpy()
-        all_labels_list = data.y.tolist()
+    def show_graphs(self, data, A_mask, X_mask, params, A_selection):
+        if params['node_graph']:
+            indexes = [i for i, value in enumerate(X_mask) if value]
+            Node_graph = data.subgraph(torch.tensor([indexes])[0])
+            Node_graph = to_networkx(Node_graph)
+            visualize(data.y[torch.tensor([indexes])], Node_graph, "Important Nodes in the graph")
 
+        if params['edge_graph']:
+            print(A_mask.sum())
+            Edge_graph = nx.from_edgelist(data.edge_index[:, A_mask].t().numpy())
+            edge_labels = data.y[list(Edge_graph.nodes)]
+            print(edge_labels)
+            #print(A_selection)
+            visualize(edge_labels, Edge_graph, "Important Edges in the graph")
 
-        '''Nem fontos élek megjelenítése
-         resultant_edges = [tuple(edge) for edge in all_edges if
-                          tuple(edge) not in [tuple(masked_edge) for masked_edge in
-                                               data.edge_index[:, A_mask].t().numpy()]]
-         G = nx.from_edgelist(resultant_edges)               
-        #edge_labels = data.y[list(G.nodes)] 
-        # # visualize(edge_labels, G,"nem fontos élek")
-        '''
+            all_edges_list = data.edge_index.t().numpy()
+            all_labels_list = data.y.tolist()
 
-        # for i in range(len(all_labels_list) - 1):
-        #    if i in test_mask_list:
-        #        node_labels[i] = 1
-        #    else:
-        #        node_labels[i] = 0
-        # Create a dictionary to map node indices to their labels.
-    # node_label_dict = {node_idx: label for node_idx, label in enumerate(node_labels)}
-    # Assign labels to nodes in the subgraph based on the dictionary.
-    # for node in Edge_graph.nodes():
-    #   Edge_graph.nodes[node]['label'] = node_label_dict[node]
-    # Get the labels of the nodes in the subgraph.
-    # a = nx.get_node_attributes(H, 'label')
+            '''Nem fontos élek megjelenítése
+             resultant_edges = [tuple(edge) for edge in all_edges if
+                              tuple(edge) not in [tuple(masked_edge) for masked_edge in
+                                                   data.edge_index[:, A_mask].t().numpy()]]
+             G = nx.from_edgelist(resultant_edges)               
+            #edge_labels = data.y[list(G.nodes)] 
+            # # visualize(edge_labels, G,"nem fontos élek")
+            '''
 
-    if params['metszet']:
-        intersection_edges = list(set(Edge_graph.edges()) & set(Node_graph.edges()))
-        intersection_graph = nx.Graph()
-        intersection_graph.add_edges_from(intersection_edges)
-        node_labels_list = [1 for node in intersection_graph.nodes]
-        visualize(node_labels_list, intersection_graph, "Fontos élek és csúcsok metszete")
+            # for i in range(len(all_labels_list) - 1):
+            #    if i in test_mask_list:
+            #        node_labels[i] = 1
+            #    else:
+            #        node_labels[i] = 0
+            # Create a dictionary to map node indices to their labels.
+        # node_label_dict = {node_idx: label for node_idx, label in enumerate(node_labels)}
+        # Assign labels to nodes in the subgraph based on the dictionary.
+        # for node in Edge_graph.nodes():
+        #   Edge_graph.nodes[node]['label'] = node_label_dict[node]
+        # Get the labels of the nodes in the subgraph.
+        # a = nx.get_node_attributes(H, 'label')
 
-    if params['unio']:
-        union_graph = nx.Graph()
-        union_graph.add_edges_from(Edge_graph.edges())
-        union_graph.add_edges_from(Node_graph.edges())
-        node_labels_list = [1 for node in union_graph.nodes]
-        visualize(node_labels_list, union_graph, "Fontos élek és csúcsok úniója")
+        if params['metszet']:
+            intersection_edges = list(set(Edge_graph.edges()) & set(Node_graph.edges()))
+            intersection_graph = nx.Graph()
+            intersection_graph.add_edges_from(intersection_edges)
+            node_labels_list = [1 for node in intersection_graph.nodes]
+            visualize(node_labels_list, intersection_graph, "Fontos élek és csúcsok metszete")
 
-    if params['k_hop_subgraph']:
-        test_mask_list = self.test_mask.tolist()
+        if params['unio']:
+            union_graph = nx.Graph()
+            union_graph.add_edges_from(Edge_graph.edges())
+            union_graph.add_edges_from(Node_graph.edges())
+            node_labels_list = [1 for node in union_graph.nodes]
+            visualize(node_labels_list, union_graph, "Fontos élek és csúcsok úniója")
 
-        for i in test_mask_list:
-             if data.y[i] == 0:
-                test_mask_list.remove(i)
-        (k_hop_subset, k_hop_edge_index, k_hop_mapping, k_hop_edge_mask) = k_hop_subgraph(
-            node_idx=test_mask_list, \
-            num_hops=2, edge_index=data.edge_index, \
-            relabel_nodes=False, num_nodes=int(data.num_nodes))
+        if params['k_hop_subgraph']:
+            test_mask_list = self.test_mask.tolist()
+            new = []
+            for i in test_mask_list:
+                if data.y[i] != 0:
+                    new.append(i)
+            test_mask_list = new
+            a, b = data.edge_index
+            reverse_edges = torch.stack([b, a], dim=0)
+            k_hops_edges_indexes = data.edge_index
+            r = random.randint(0, len(test_mask_list))
+            (k_hop_subset, k_hop_edge_index, k_hop_mapping, k_hop_edge_mask) = k_hop_subgraph(
+                node_idx=test_mask_list[r], \
+                num_hops=3, edge_index=k_hops_edges_indexes, \
+                relabel_nodes=False, num_nodes=int(data.num_nodes), directed=False )
+            print(data.num_nodes)
+            print(k_hop_subset)
+            print( k_hop_edge_index)
 
-        k_hop_graph = nx.from_edgelist(k_hop_edge_index.t().numpy())
-        k_hop_graph_nodes = list(k_hop_graph.nodes)
-        test_color = data.y.clone()
-        for i in test_mask_list:
-            test_color[i] = max(data.y)+1
-        k_hop_graph_labels = test_color[k_hop_graph_nodes]
+            k_hop_graph = nx.from_edgelist(k_hop_edge_index.t().numpy())
+            k_hop_graph_nodes = list(k_hop_graph.nodes)
+            test_color = data.y.clone()
+            test_color[test_mask_list[r]] = max(data.y) + 4
+            # for i in test_mask_list:
+            #     test_color[i] = max(data.y) + 4
+            k_hop_graph_labels = test_color[k_hop_graph_nodes]
 
-        visualize(k_hop_graph_labels, k_hop_graph, "k_hops from test data")
+            visualize(k_hop_graph_labels, k_hop_graph, "k_hops.py from test data")
 
-        all_edges_list = data.edge_index.t().numpy()
-        undirected_edges = []
-        colors = []
-        # Get the A_mask and the edge colors for the undirected nx_graph
-        for i in range(all_edges_list.shape[0]):
-            if all_edges_list[i] in k_hop_graph.edges:
+            all_edges_list = data.edge_index.t().numpy()
+            undirected_edges = []
+            colors = []
+            # Get the A_mask and the edge colors for the undirected nx_graph
+            for i in range(all_edges_list.shape[0]):
+                if all_edges_list[i] in k_hop_graph.edges:
+                    if {all_edges_list[i, 0], all_edges_list[i, 1]} not in undirected_edges:
+                        undirected_edges.append({all_edges_list[i, 0], all_edges_list[i, 1]})
+                        if A_mask[i]:
+                            colors.append("blue")
+                        else:
+                            colors.append("red")
+                    else:
+                        if A_mask[i]:
+                            colors[undirected_edges.index({all_edges_list[i, 0], all_edges_list[i, 1]})] = "blue"
+
+            # Sort the edges and colors
+            paired_list = list(zip(undirected_edges, colors))
+            sorted_paired_list = sorted(paired_list, key=lambda pair: min(pair[0]))
+            undirected_edges, colors = zip(*sorted_paired_list)
+
+            visualize(k_hop_graph_labels, k_hop_graph, "Élek fontosságával a k hops a teszt halmaztól:", colors)
+
+        if params['whole_graph']:
+            all_edges_list = data.edge_index.t().numpy()
+            undirected_edges = []
+            colors = []
+
+            A_selection = A_selection.tolist()
+            c = [(w - min(A_selection)) / (max(A_selection) - min(A_selection)) for w in A_selection]
+
+            # Get the A_mask and the edge colors for the undirected nx_graph
+            for i in range(all_edges_list.shape[0]):
                 if {all_edges_list[i, 0], all_edges_list[i, 1]} not in undirected_edges:
                     undirected_edges.append({all_edges_list[i, 0], all_edges_list[i, 1]})
+                    c.append(A_selection[i])
                     if A_mask[i]:
                         colors.append("blue")
                     else:
@@ -501,43 +573,11 @@ def show_graphs(self, data, A_mask, X_mask, params, A_selection):
                     if A_mask[i]:
                         colors[undirected_edges.index({all_edges_list[i, 0], all_edges_list[i, 1]})] = "blue"
 
-        # Sort the edges and colors
-        paired_list = list(zip(undirected_edges, colors))
-        sorted_paired_list = sorted(paired_list, key=lambda pair: min(pair[0]))
-        undirected_edges, colors = zip(*sorted_paired_list)
+            # Sort the edges and colors
+            paired_list = list(zip(undirected_edges, colors, c))
+            sorted_paired_list = sorted(paired_list, key=lambda pair: min(pair[0]))
+            undirected_edges, colors, c = zip(*sorted_paired_list)
 
-
-
-        visualize(k_hop_graph_labels, k_hop_graph, "Élek fontosságával a k hops a teszt halmaztól:", colors)
-
-    if params['whole_graph']:
-        all_edges_list = data.edge_index.t().numpy()
-        undirected_edges = []
-        colors = []
-
-
-        A_selection= A_selection.tolist()
-        c  = [(w - min(A_selection)) / (max(A_selection) - min(A_selection)) for w in A_selection]
-
-
-        # Get the A_mask and the edge colors for the undirected nx_graph
-        for i in range(all_edges_list.shape[0]):
-            if {all_edges_list[i, 0], all_edges_list[i, 1]} not in undirected_edges:
-                undirected_edges.append({all_edges_list[i, 0], all_edges_list[i, 1]})
-                c.append(A_selection[i])
-                if A_mask[i]:
-                    colors.append("blue")
-                else:
-                    colors.append("red")
-            else:
-                if A_mask[i]:
-                    colors[undirected_edges.index({all_edges_list[i, 0], all_edges_list[i, 1]})] = "blue"
-
-        # Sort the edges and colors
-        paired_list = list(zip(undirected_edges, colors, c))
-        sorted_paired_list = sorted(paired_list, key=lambda pair: min(pair[0]))
-        undirected_edges, colors, c = zip(*sorted_paired_list)
-
-        Graph = to_networkx(data)
-       # visualize(data.y, Graph, "Élek fontossága a teljes gráfban:", c)
-        visualize(data.y, Graph, "Élek fontossága a teljes gráfban:", colors)
+            Graph = to_networkx(data)
+            # visualize(data.y, Graph, "Élek fontossága a teljes gráfban:", c)
+            visualize(data.y, Graph, "Élek fontossága a teljes gráfban:", colors)
