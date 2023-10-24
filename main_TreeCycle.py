@@ -136,7 +136,7 @@ if __name__ == '__main__':
 
     params.activation = 'relu'
     params.learning_rate = 0.001
-    params.lamda = 0.000
+    params.lamda = 0.01
     params.num_classes = dataset.num_classes
     model_parameters = {'lamda': params.lamda,
                         'critic_h_dim': params.critic_h_dim,
@@ -166,11 +166,11 @@ if __name__ == '__main__':
     # Compute importance score
     # !!!! értékek beállítása
     important_node_th = 0.75  # Az e feletti csúcsok legyenek fontosak
-    important_edge_th = 0.75  # Az e feletti élek számítsanak fontosnak
+    important_edge_th = 0.5  # Az e feletti élek számítsanak fontosnak
     importance_mask = model.importance_score(data.x, data.edge_index, important_edge_th)
     # # Evaluate the performance of edge importance  (ground truth, importance score from the actor)
     mean_tpr, std_tpr, mean_fdr, std_fdr = \
-        feature_performance_metric(data.gt_importance_edges_mask, importance_mask)
+        feature_performance_metric(data.gt_importance_edges_mask, torch.from_numpy(importance_mask))
 
     # Print the performance of edge importance
     print('TPR mean: ' + str(np.round(mean_tpr, 1)) + '\%, ' + \

@@ -136,7 +136,7 @@ if __name__ == '__main__':
 
     params.activation = 'relu'
     params.learning_rate = 0.001  # 0.005
-    params.lamda = 0.0001
+    params.lamda = 0.1
     params.num_classes = dataset.num_classes
     model_parameters = {'lamda': params.lamda,
                         'critic_h_dim': params.critic_h_dim,
@@ -167,13 +167,22 @@ if __name__ == '__main__':
     importance_mask = model.importance_score(data.x, data.edge_index, important_edge_th)
     # # Evaluate the performance of edge importance  (ground truth, importance score from the actor)
     mean_tpr, std_tpr, mean_fdr, std_fdr = \
-        feature_performance_metric(data.gt_importance_edges_mask, importance_mask)
+        feature_performance_metric(data.gt_importance_edges_mask, torch.from_numpy(importance_mask))
 
     # Print the performance of edge importance
     print('TPR mean: ' + str(np.round(mean_tpr, 1)) + '\%, ' + \
           'TPR std: ' + str(np.round(std_tpr, 1)) + '\%, ')
     print('FDR mean: ' + str(np.round(mean_fdr, 1)) + '\%, ' + \
           'FDR std: ' + str(np.round(std_fdr, 1)) + '\%, ')
+
+    # mean_tpr, std_tpr, mean_fdr, std_fdr = \
+    #     feature_performance_metric(data.gt_importance_edges_mask, random_mask)
+    #
+    # # Print the performance of edge importance
+    # print('RANDOOM TPR mean: ' + str(np.round(mean_tpr, 1)) + '\%, ' + \
+    #       'TPR std: ' + str(np.round(std_tpr, 1)) + '\%, ')
+    # print('FDR mean: ' + str(np.round(mean_fdr, 1)) + '\%, ' + \
+    #       'FDR std: ' + str(np.round(std_fdr, 1)) + '\%, ')
 
     # Predict labels
     baseline_pred, y_hat, y_hat_inverse, A_mask, X_mask, A_selection = model.predict(data, important_node_th,
@@ -214,6 +223,7 @@ if __name__ == '__main__':
     Fidelity_plus = baseline_acc - acc_unimportant_edges
     Fidelity_minus = baseline_acc - acc_important_edges
     print("Fidelity plus score: ", Fidelity_plus, "\nFidelity minus score: ", Fidelity_minus)
+
 
     # Evaluate the performance of feature importance
     auc, apr, acc = prediction_performance_metric(data.y[test_idx], y_hat[test_idx])

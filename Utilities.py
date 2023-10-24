@@ -81,3 +81,15 @@ def bernoulli_sampling(prob):
     samples = np.random.binomial(1, prob, (n, d))
 
     return samples
+
+def bernoulli_sampling_edges(prob):
+    """ Sampling Bernoulli distribution by given probability.
+  Args:
+    - prob: P(Y = 1) in Bernoulli distribution.
+  Returns:
+    - samples: samples from Bernoulli distribution
+  """
+    n = prob.shape
+    samples = np.random.binomial(1, prob, (n))
+
+    return samples
