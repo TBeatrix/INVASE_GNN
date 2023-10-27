@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import networkx as nx
 from torch_geometric.transforms import AddLaplacianEigenvectorPE
 import time
-from GCN_Invase import InvaseGCN
+from GCN_Invase_old import InvaseGCN
 from Utilities import prediction_performance_metric, feature_performance_metric
 from torch_geometric.data import Data
 from dgl.data import TreeGridDataset

@@ -9,7 +9,7 @@ import networkx as nx
 import torch_geometric.transforms as T
 from torch_geometric.transforms import AddLaplacianEigenvectorPE
 import time
-from GCN_Invase import InvaseGCN
+from GCN_Invase_old import InvaseGCN
 from Utilities import prediction_performance_metric, feature_performance_metric
 from torch_geometric.data import Data
 from dgl.data import TreeCycleDataset, TreeGridDataset

@@ -9,7 +9,7 @@ import networkx as nx
 import torch_geometric.transforms as T
 from torch_geometric.transforms import AddLaplacianEigenvectorPE
 import time
-from GCN_Invase import InvaseGCN
+from GCN_Invase_old import InvaseGCN
 from Utilities import prediction_performance_metric, feature_performance_metric
 from torch_geometric.data import Data
 from dgl.data import TreeCycleDataset, TreeGridDataset
@@ -105,7 +105,7 @@ if __name__ == '__main__':
         graph_generator=BAGraph(num_nodes=300, num_edges=5),
         motif_generator='house',
         num_motifs=80,
-        transform=T.AddLaplacianEigenvectorPE(5)  # T.Constant()  => data.x = 1
+        transform=T.AddLaplacianEigenvectorPE(10, is_undirected=True)  # T.Constant()  => data.x = 1
     )
     data = dataset[0]
 
@@ -130,13 +130,13 @@ if __name__ == '__main__':
     # Inputs for the main function
     params.data_type = 'BAShapes'
     params.model_type = 'invase'
-    params.critic_h_dim = 20  # 20
-    params.n_layer = 3
+    params.critic_h_dim = 10  # 20
+    params.n_layer = 3 #3?
     params.iteration = 7500
 
     params.activation = 'relu'
-    params.learning_rate = 0.001  # 0.005
-    params.lamda = 0.1
+    params.learning_rate = 0.0001  # 0.005
+    params.lamda = 0.001
     params.num_classes = dataset.num_classes
     model_parameters = {'lamda': params.lamda,
                         'critic_h_dim': params.critic_h_dim,
@@ -162,12 +162,12 @@ if __name__ == '__main__':
     # (3) Evaluate INVASE on ground truth edge importance and prediction performance
     # Compute importance score
     # !!!! értékek beállítása
-    important_node_th = 0.75  # Az e feletti csúcsok legyenek fontosak
-    important_edge_th = 0.75  # Az e feletti élek számítsanak fontosnak
+    important_node_th = 0.5  # Az e feletti csúcsok legyenek fontosak
+    important_edge_th = 0.5  # Az e feletti élek számítsanak fontosnak
     importance_mask = model.importance_score(data.x, data.edge_index, important_edge_th)
     # # Evaluate the performance of edge importance  (ground truth, importance score from the actor)
     mean_tpr, std_tpr, mean_fdr, std_fdr = \
-        feature_performance_metric(data.gt_importance_edges_mask, torch.from_numpy(importance_mask))
+        feature_performance_metric(data.gt_importance_edges_mask, importance_mask)
 
     # Print the performance of edge importance
     print('TPR mean: ' + str(np.round(mean_tpr, 1)) + '\%, ' + \
@@ -185,7 +185,7 @@ if __name__ == '__main__':
     #       'FDR std: ' + str(np.round(std_fdr, 1)) + '\%, ')
 
     # Predict labels
-    baseline_pred, y_hat, y_hat_inverse, A_mask, X_mask, A_selection = model.predict(data, important_node_th,
+    baseline_pred, y_hat, y_hat_inverse, edge_selection, edge_selection_probability = model.predict(data, important_node_th,
                                                                                      important_edge_th)
 
     # Visualize Importance predictions
@@ -198,12 +198,12 @@ if __name__ == '__main__':
         'unio': False,  # Fontos élek vagy fontos csúcsok
         'metszet': False}  # Fontos él és csúcs is
 
-    model.show_graphs(data, A_mask, X_mask, visualize_params, A_selection)
+    model.show_graphs(data, edge_selection, torch.ones(data.x.shape), visualize_params, edge_selection_probability)
 
     # EVALUATE
 
     # Sparsity
-    Sparsity = 1 - (A_mask.sum() / data.edge_index.size(1))
+    Sparsity = 1 - (edge_selection.sum() / data.edge_index.size(1))
     print("Sparsity: ", Sparsity.item())
     # Fidelity score
     # Acc of the original labels
@@ -225,13 +225,13 @@ if __name__ == '__main__':
     print("Fidelity plus score: ", Fidelity_plus, "\nFidelity minus score: ", Fidelity_minus)
 
 
-    # Evaluate the performance of feature importance
-    auc, apr, acc = prediction_performance_metric(data.y[test_idx], y_hat[test_idx])
+    # # Evaluate the performance of feature importance
+    # auc, apr, acc = prediction_performance_metric(data.y[test_idx], y_hat[test_idx])
 
-    # Print the performance of feature importance
-    print('AUC: ' + str(np.round(auc, 3)) + \
-          ', APR: ' + str(np.round(apr, 3)) + \
-          ', ACC: ' + str(np.round(acc, 3)))
+    # # Print the performance of feature importance
+    # print('AUC: ' + str(np.round(auc, 3)) + \
+    #       ', APR: ' + str(np.round(apr, 3)) + \
+    #       ', ACC: ' + str(np.round(acc, 3)))
 
     #performance = {'mean_tpr': mean_tpr, 'std_tpr': std_tpr,
     #               'mean_fdr': mean_fdr, 'std_fdr': std_fdr,
