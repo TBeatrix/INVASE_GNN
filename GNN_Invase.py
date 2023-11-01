@@ -17,6 +17,7 @@ from torch_geometric.nn import GAE, GCN, GIN, MLP
 # from main import to_networkx, visualize
 import matplotlib.pyplot as plt
 
+
 def visualize(labels, g, title="Graph", edge='black'):
     pos = nx.kamada_kawai_layout(g)
     plt.figure(figsize=(10, 10))
@@ -33,17 +34,6 @@ def to_networkx(data, node_attrs=None, edge_attrs=None):
 
     G.add_nodes_from(range(data.num_nodes))
     G.add_edges_from(data.edge_index.t().tolist())
-    # for i, (u, v) in enumerate(data.edge_index.t().tolist()):
-    #
-    #     G.add_edge(u, v)
-    #     if edge_attrs is not None:
-    #         for key in edge_attrs:
-    #             G[u][v][key] = data[key][i].item()
-    #
-    # if node_attrs is not None:
-    #     for key in node_attrs:
-    #         for i, feat in enumerate(data[key]):
-    #             G.nodes[i][key] = feat.item()
 
     return G
 
@@ -71,14 +61,18 @@ class CrossEntropy:
 
 
 # **INVASE Model**
-class InvaseGCN:
+class InvaseGNN:
     def __init__(self, data, model_type, model_parameters):
         x_train = data.x
         A_train = data.edge_index
         y_train = data.y
         self.lamda = model_parameters['lamda']
         self.critic_h_dim = model_parameters['critic_h_dim']
-        self.n_layer = model_parameters['n_layer']
+        self.actor_h_dim = model_parameters['actor_h_dim']
+        self.critic_model = model_parameters['critic_model']
+        self.actor_model = model_parameters['actor_model']
+        self.critic_n_layer = model_parameters['critic_n_layer']
+        self.actor_n_layer = model_parameters['actor_n_layer']
         self.iteration = model_parameters['iteration']
         if model_parameters['activation'] == "relu":
             self.activation = nn.ReLU()
@@ -104,7 +98,6 @@ class InvaseGCN:
             # Build and compile the baseline
             self.baseline = self.build_baseline()
             self.baseline.optimizer = torch.optim.Adam(self.baseline.parameters(), self.learning_rate)
-            # self.baseline.loss = CrossEntropy(reduction='mean')
 
     def actor_loss(self, y_final, y, edge_selection, edge_selection_probability):
 
@@ -129,110 +122,101 @@ class InvaseGCN:
             Reward = -critic_loss
 
         loss1 = Reward * \
-               torch.mean(edge_selection * torch.log(edge_selection_probability + 1e-8) + \
-               (1 - edge_selection) * torch.log(1 - edge_selection_probability + 1e-8))
-        loss2 = self.lamda * torch.mean(edge_selection_probability)
-
-       # print(loss1, loss2)
+                torch.mean(edge_selection * torch.log(edge_selection_probability + 1e-8) + \
+                           (1 - edge_selection) * torch.log(1 - edge_selection_probability + 1e-8))
+        loss2 = self.lamda * torch.mean(
+            edge_selection_probability)  # + self.lamda * torch.sum(edge_selection) / len(edge_selection)
 
         loss = loss1 - loss2
 
         custom_actor_loss = -loss
 
-        return custom_actor_loss +1
+        return custom_actor_loss
 
     def build_actor(self, params):
 
-        # GCN model
-        # class ActorGCN(nn.Module):
-        #     def __init__(self, params):
-        #         super(ActorGCN, self).__init__()
-        #         # Params
-        #         self.activation = params.activation
-        #         self.n_layer = params.n_layer
-        #         self.label_dim = params.label_dim
-        #         self.dim = params.dim
-        #         self.baseline_h_dim = params.critic_h_dim  # same as the critic
-        #
-        #         # Layers
-        #         self.GCNConv_in = GCNConv(self.dim, self.baseline_h_dim)
-        #         self.GCNConv_hidden = GCNConv(self.baseline_h_dim, self.baseline_h_dim)
-        #         self.GCNConv_out = GCNConv(self.baseline_h_dim, self.label_dim)
-        #
-        #
-        #     def forward(self, feature, edge_index):
-        #         x = self.activation(self.GCNConv_in(feature, edge_index))
-        #         for i in range(self.n_layer - 2):
-        #             x = self.activation(self.GCNConv_hidden(x, edge_index))
-        #         y_hat = (self.GCNConv_out(x, edge_index))
-        #         return torch.sigmoid(torch.matmul(y_hat, y_hat.t()))
-        #
-        # actor_model = ActorGCN(self)
-        # return actor_model
+        # Autoencoder model
+        if params.actor_model == 'GIN':
+            encoder = GIN(in_channels=self.dim, hidden_channels=params.actor_h_dim, num_layers=params.actor_n_layer)
+        elif params.actor_model == 'GCN':
+            encoder = GCN(self.dim, params.actor_h_dim, params.actor_n_layer)
 
-        # # Autoencoder model
-        encoder = GIN(in_channels=self.dim, hidden_channels=10, num_layers=2) #GCN(self.dim, 20, 3)
         actor_model = GAE(encoder)
         return actor_model
 
     def build_critic(self):
 
-        class CriticGCN(nn.Module):
+        class CriticGNN(nn.Module):
             def __init__(self, params):
-                super(CriticGCN, self).__init__()
+                super(CriticGNN, self).__init__()
                 # Params
                 self.activation = params.activation
-                self.n_layer = params.n_layer
+                self.n_layer = params.critic_n_layer
                 self.label_dim = params.label_dim
                 self.dim1 = params.dim
                 self.critic_h_dim = params.critic_h_dim
+                self.critic_model = params.critic_model
 
-                # Layers
-                self.GCNConv_in = GINConv(MLP([self.dim1, self.critic_h_dim, self.critic_h_dim])) #GCNConv(self.dim1, self.critic_h_dim)
-                self.GCNConv_hidden = GINConv(MLP([self.critic_h_dim, self.critic_h_dim, self.critic_h_dim])) #GCNConv(self.critic_h_dim, self.critic_h_dim)
-                self.GCN_Conv_out = GINConv(MLP([self.critic_h_dim, self.critic_h_dim, self.label_dim])) #GCNConv(self.critic_h_dim, self.label_dim)
+                if self.critic_model == 'GIN':
+                    # Layers
+                    self.GNNConv_in = GINConv(MLP([self.dim1, self.critic_h_dim, self.critic_h_dim]))
+                    self.GNNConv_hidden = GINConv(MLP([self.critic_h_dim, self.critic_h_dim, self.critic_h_dim]))
+                    self.GNNConv_out = GINConv(MLP([self.critic_h_dim, self.critic_h_dim, self.label_dim]))
+                elif self.critic_model == 'GCN':
+                    self.GNNConv_in = GCNConv(self.dim1, self.critic_h_dim)
+                    self.GNNConv_hidden = GCNConv(self.critic_h_dim, self.critic_h_dim)
+                    self.GNNConv_out = GCNConv(self.critic_h_dim, self.label_dim)
+                else:
+                    raise ValueError('Invalid critic model type')
 
             def forward(self, feature, edge_index, edge_selection):
                 # Element wise multiplication
                 # Use only the selected features and edges
 
                 selected_edge_index = edge_index[:, edge_selection.to(torch.bool)]
-               #
                 # critic_model_A_input = (edge_index * A_selection).float()
-                x = self.activation(self.GCNConv_in(feature, selected_edge_index))
+                x = self.activation(self.GNNConv_in(feature, selected_edge_index))
                 for i in range(self.n_layer - 2):
-                    x = self.activation(self.GCNConv_hidden(x, selected_edge_index))
-                y_hat = nn.Softmax(dim=1)(self.GCN_Conv_out(x, selected_edge_index))
+                    x = self.activation(self.GNNConv_hidden(x, selected_edge_index))
+                y_hat = nn.Softmax(dim=1)(self.GNNConv_out(x, selected_edge_index))
                 return y_hat
 
-        critic_model = CriticGCN(self)
+        critic_model = CriticGNN(self)
         return critic_model
 
     def build_baseline(self):
 
-        class BaselineGCN(nn.Module):
+        class BaselineGNN(nn.Module):
             def __init__(self, params):
-                super(BaselineGCN, self).__init__()
+                super(BaselineGNN, self).__init__()
                 # Params
                 self.activation = params.activation
-                self.n_layer = params.n_layer
+                self.n_layer = params.critic_n_layer
                 self.label_dim = params.label_dim
                 self.dim = params.dim
                 self.baseline_h_dim = params.critic_h_dim  # same as the critic
+                self.baseline_model = params.critic_model
 
-                # Layers
-                self.GCNConv_in = GINConv(MLP([self.dim, self.baseline_h_dim, self.baseline_h_dim])) #GCNConv(self.dim, self.baseline_h_dim)
-                self.GCNConv_hidden = GINConv(MLP([self.baseline_h_dim, self.baseline_h_dim, self.baseline_h_dim])) #GCNConv(self.baseline_h_dim, self.baseline_h_dim)
-                self.GCNConv_out = GINConv(MLP([self.baseline_h_dim, self.baseline_h_dim, self.label_dim])) #GCNConv(self.baseline_h_dim, self.label_dim)
+                if self.baseline_model == 'GIN':
+                    # Layers
+                    self.GNNConv_in = GINConv(MLP([self.dim, self.baseline_h_dim, self.baseline_h_dim]))
+                    self.GNNConv_hidden = GINConv(MLP([self.baseline_h_dim, self.baseline_h_dim, self.baseline_h_dim]))
+                    self.GNNConv_out = GINConv(MLP([self.baseline_h_dim, self.baseline_h_dim, self.label_dim]))
+                elif self.baseline_model == 'GCN':
+                    self.GNNConv_in = GCNConv(self.dim, self.baseline_h_dim)
+                    self.GNNConv_hidden = GCNConv(self.baseline_h_dim, self.baseline_h_dim)
+                    self.GNNConv_out = GCNConv(self.baseline_h_dim, self.label_dim)
+                else:
+                    raise ValueError('Invalid baseline model type')
 
             def forward(self, feature, edge_index):
-                x = self.activation(self.GCNConv_in(feature, edge_index))
+                x = self.activation(self.GNNConv_in(feature, edge_index))
                 for i in range(self.n_layer - 2):
-                    x = self.activation(self.GCNConv_hidden(x, edge_index))
-                y_hat = nn.Softmax(dim=1)(self.GCNConv_out(x, edge_index))
+                    x = self.activation(self.GNNConv_hidden(x, edge_index))
+                y_hat = nn.Softmax(dim=1)(self.GNNConv_out(x, edge_index))
                 return y_hat
 
-        baseline_model = BaselineGCN(self)
+        baseline_model = BaselineGNN(self)
         return baseline_model
 
     # ------------------------------------------------------------------------------#
@@ -307,7 +291,8 @@ class InvaseGCN:
             z = self.actor.encode(x, edge_index)
             edge_selection_probability = self.actor.decode(z, unique_edge_index)
 
-            self.actor.loss_value = self.actor.loss_invase(y_final, y, unique_edge_selection, edge_selection_probability)
+            self.actor.loss_value = self.actor.loss_invase(y_final, y, unique_edge_selection,
+                                                           edge_selection_probability)
 
             # Backward pass
             self.actor.loss_value.backward()
@@ -340,7 +325,6 @@ class InvaseGCN:
 
         plt.savefig('Loss.png')
 
-
         plt.plot(acc)
         plt.legend(['baseline test acc', 'baseline train acc', 'critic test acc', 'critic train acc'])
 
@@ -352,15 +336,7 @@ class InvaseGCN:
             z = self.actor.encode(data.x, data.edge_index)
             edge_selection_probability = self.actor.decode(z, data.unique_edge_index)
 
-        #edge_selection = bernoulli_sampling_edges(edge_selection_probability)
-        #edge_selection = torch.from_numpy(edge_selection)
-
-
-        edge_selection = edge_selection_probability > 0.5 # threshold_value
-        # Generate a node importance score from masks
-        # A_edges = edge_index[:, A_mask].t().numpy()
-        # A_nodes = A_edges[0] + A_edges[1]
-        # A_nodes = np.unique(A_nodes)
+        edge_selection = edge_selection_probability > important_edge_th  # threshold_value
         return edge_selection
 
     @torch.no_grad()
@@ -381,20 +357,16 @@ class InvaseGCN:
 
         # Test the critic model
         # Generate  selection probability
-
         self.actor.eval()
         with torch.no_grad():
             z = self.actor.encode(x, edge_index)
             edge_selection_probability = self.actor.decode(z, data.unique_edge_index)
 
-        print("min", edge_selection_probability.max())
-        print("max", edge_selection_probability.min())
-        sorted_tensor = np.sort(edge_selection_probability)
-        index_40th_percentile = int(0.6 * len(edge_selection_probability))
-        threshold_value = sorted_tensor[index_40th_percentile]
+        # print("min", edge_selection_probability.max())
+        # print("max", edge_selection_probability.min())
 
-       # edge_selection = edge_selection_probability > threshold_value
         edge_selection = edge_selection_probability > 0.5
+        # Symetrize the matrix
         edge_selection = edge_selection.repeat(1, 2).view(-1)
         self.critic.eval()
         with torch.no_grad():
@@ -404,11 +376,6 @@ class InvaseGCN:
 
             c_test_correct = int((pred[test_mask] == y[test_mask]).sum())
             c_test_acc = c_test_correct / test_mask.size(0)
-        #  a = x_selection.size()
-        # Print the progress
-        # print("Selected nodes: ") + str(x_selection.sum()) + " out of "
-        # print(x_selection.shape[1])
-        #  print("Selected edges: ") + str((A_mask == True).sum()) + " out of " + str(A_mask.shape[1])
         dialog = 'BASELINE:  Test acc: ' + str(test_acc) + ' train acc: ' + str(
             train_acc) + '\n CRITIC:  Test acc: ' + str(c_test_acc) + ' train acc: ' + str(c_train_acc)
 
@@ -416,7 +383,8 @@ class InvaseGCN:
         return [test_acc, train_acc, c_test_acc, c_train_acc]
 
     def evaluate(self, data, important_node_th=0.5, important_edge_th=0.5):
-        baseline_pred, y_hat, y_hat_inverse, edge_selection, edge_selection_probability = self.predict(data, important_edge_th)
+        baseline_pred, y_hat, y_hat_inverse, edge_selection, edge_selection_probability = self.predict(data,
+                                                                                                       important_edge_th)
         # Acc of the original labels
         correct_baseline = int((baseline_pred[self.test_mask] == data.y[self.test_mask]).sum())
         baseline_acc = correct_baseline / self.test_mask.size(0)
@@ -436,7 +404,7 @@ class InvaseGCN:
         Fidelity_minus = baseline_acc - acc_important_edges
         print("Fidelity plus score: ", Fidelity_plus, "\nFidelity minus score: ", Fidelity_minus)
 
-    def predict(self, data, important_node_th=0.5, important_edge_th=0.5):
+    def predict(self, data, important_node_th=0.5, important_edge_th=0.5, need_randoms=False):
         # Baseline_predictions
         baseline_pred = self.predict_baseline(data)
 
@@ -451,35 +419,12 @@ class InvaseGCN:
             z = self.actor.encode(x, A)
             edge_selection_probability = self.actor.decode(z, data.unique_edge_index)
 
-        # Sampling the features based on the selection_probability
-        #edge_selection = bernoulli_sampling_edges(edge_selection_probability)
-        #edge_selection = torch.from_numpy(edge_selection)
-
         # Select the edges that are above the threshold
         print('MAX: ', edge_selection_probability.max())
         print('MIN: ', edge_selection_probability.min())
 
-        # Step 1: Sort the tensor in ascending order
-        # sorted_tensor = np.sort(edge_selection_probability)
-
-        # Step 2: Find the threshold value
-        # Calculate the index for the 40th percentile
-       # index_40th_percentile = int(0.6 * len(edge_selection_probability))
-
-        # Find the threshold value
-        #threshold_value = sorted_tensor[index_40th_percentile]
-
-
-        edge_selection = edge_selection_probability > 0.5 #threshold_value
+        edge_selection = edge_selection_probability > important_edge_th  # threshold_value
         edge_selection = edge_selection.repeat(1, 2).view(-1)
-
-
-        #edge_selection = edge_selection_probability > 0.5
-
-        # print(edge_selection[   0:10])
-        # print(edge_selection[1980:1990])
-        # randomly
-        # edge_selection = torch.randint(low=0, high=2, size=edge_selection.shape)
 
         # Critic prediction - with Importance masks
         self.critic.eval()
@@ -493,7 +438,51 @@ class InvaseGCN:
         with torch.no_grad():
             y_hat_inverse = self.critic(x, A, edge_selection_inverse).argmax(dim=-1)
 
+        # random modellek 0.4, 0.5 0.6 és 0.8 as Sparsityvel
+        if need_randoms:
+            for i in [0.4, 0.5, 0.6, 0.8]:
+                self.create_random_selection_and_eval(data, i, edge_selection_probability, baseline_pred)
+
         return baseline_pred, y_hat, y_hat_inverse, edge_selection, edge_selection_probability
+
+    def create_random_selection_and_eval(self, data, zeros_p, edge_selection, baseline_pred):
+        zeros = [0] * int(np.floor(zeros_p * len(edge_selection)))
+        ones = [1] * int(np.ceil((1 - zeros_p) * len(edge_selection)))
+        random_list = zeros + ones
+        random.shuffle(random_list)
+        random_edge_selection = torch.Tensor(random_list).repeat(1, 2).view(-1)
+
+        self.critic.eval()
+        with torch.no_grad():
+            y_hat_rand = self.critic(data.x, data.edge_index, random_edge_selection).argmax(dim=-1)
+
+        # Critic prediction - with Unimportance masks
+        random_edge_selection_inverse = (~(random_edge_selection.to(torch.bool)))
+        edge_selection_inverse = random_edge_selection_inverse.to(torch.int64)
+        self.critic.eval()
+        with torch.no_grad():
+            y_hat_inverse_rand = self.critic(data.x, data.edge_index, edge_selection_inverse).argmax(dim=-1)
+
+        Sparsity = 1 - (random_edge_selection.sum() / data.edge_index.size(1))
+        print("Random Sparsity: ", Sparsity.item())
+        # Fidelity score
+        # Acc of the original labels
+        correct_baseline = int((baseline_pred[self.test_mask] == data.y[self.test_mask]).sum())
+        baseline_acc = correct_baseline / self.test_mask.size(0)
+        # Acc of the graph only with the important edges
+        correct_y_hat = int((y_hat_rand[self.test_mask] == data.y[self.test_mask]).sum())
+        acc_important_edges = correct_y_hat / self.test_mask.size(0)
+        # Acc of the graph without the important edges
+        correct_y_hat_inverse = int((y_hat_inverse_rand[self.test_mask] == data.y[self.test_mask]).sum())
+        acc_unimportant_edges = correct_y_hat_inverse / self.test_mask.size(0)
+
+        print("ACC of the whole graph: ", baseline_acc, ",\n ACC with only the important edges", acc_important_edges,
+              "\n ACC with only the unimportant edges", acc_unimportant_edges)
+
+        # Fidelity score
+        Fidelity_plus = baseline_acc - acc_unimportant_edges
+        Fidelity_minus = baseline_acc - acc_important_edges
+        print("Fidelity plus score: ", Fidelity_plus, "\nFidelity minus score: ", Fidelity_minus)
 
     def predict_baseline(self, data):
         x = data.x
@@ -502,8 +491,6 @@ class InvaseGCN:
         self.baseline.eval()
         with torch.no_grad():
             pred = self.baseline(x, edge_index).argmax(dim=-1)
-        # correct = int((pred == data.y).sum())
-        # acc = correct / data.num_nodes
 
         return pred
 
@@ -521,33 +508,10 @@ class InvaseGCN:
             Edge_graph = nx.from_edgelist(data.edge_index[:, bool_mask].t().numpy())
             edge_labels = data.y[list(Edge_graph.nodes)]
             print(edge_labels)
-            #print(A_selection)
+            # print(A_selection)
             visualize(edge_labels, Edge_graph, "important_edges")
 
-            # all_edges_list = data.edge_index.t().numpy()
-            # all_labels_list = data.y.tolist()
 
-            '''Nem fontos élek megjelenítése
-             resultant_edges = [tuple(edge) for edge in all_edges if
-                              tuple(edge) not in [tuple(masked_edge) for masked_edge in
-                                                   data.edge_index[:, A_mask].t().numpy()]]
-             G = nx.from_edgelist(resultant_edges)               
-            #edge_labels = data.y[list(G.nodes)] 
-            # # visualize(edge_labels, G,"nem fontos élek")
-            '''
-
-            # for i in range(len(all_labels_list) - 1):
-            #    if i in test_mask_list:
-            #        node_labels[i] = 1
-            #    else:
-            #        node_labels[i] = 0
-            # Create a dictionary to map node indices to their labels.
-        # node_label_dict = {node_idx: label for node_idx, label in enumerate(node_labels)}
-        # Assign labels to nodes in the subgraph based on the dictionary.
-        # for node in Edge_graph.nodes():
-        #   Edge_graph.nodes[node]['label'] = node_label_dict[node]
-        # Get the labels of the nodes in the subgraph.
-        # a = nx.get_node_attributes(H, 'label')
 
         if params['metszet']:
             intersection_edges = list(set(Edge_graph.edges()) & set(Node_graph.edges()))
@@ -578,9 +542,7 @@ class InvaseGCN:
                 node_idx=test_mask_list[r], \
                 num_hops=3, edge_index=k_hops_edges_indexes, \
                 relabel_nodes=False, num_nodes=int(data.num_nodes), directed=False)
-            #print(data.num_nodes)
-            #print(k_hop_subset)
-            #print(k_hop_edge_index)
+
 
             k_hop_graph = nx.from_edgelist(k_hop_edge_index.t().numpy())
             k_hop_graph_nodes = list(k_hop_graph.nodes)
@@ -590,7 +552,7 @@ class InvaseGCN:
             #     test_color[i] = max(data.y) + 4
             k_hop_graph_labels = test_color[k_hop_graph_nodes]
 
-            #visualize(k_hop_graph_labels, k_hop_graph, "k_hops_from_testdata")
+            # visualize(k_hop_graph_labels, k_hop_graph, "k_hops_from_testdata")
 
             all_edges_list = data.edge_index.t().numpy()
             undirected_edges = []
@@ -642,5 +604,4 @@ class InvaseGCN:
             undirected_edges, colors, c = zip(*sorted_paired_list)
 
             Graph = to_networkx(data)
-            # visualize(data.y, Graph, "Élek fontossága a teljes gráfban:", c)
             visualize(data.y, Graph, "whole_graf", colors)
